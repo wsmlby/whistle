@@ -1,2 +1,65 @@
-# whistle
-WhistleAI is a lightweight, intelligent log monitoring tool designed specifically for home lab enthusiasts and small-scale server administrators who want an automated way to get alert from critical system events
+# Whistle AI
+WhistleAI is a lightweight, intelligent log monitoring tool designed specifically for home lab enthusiasts and small-scale server administrators who want an automated way to get notified of critical system event. By leveraging AI-powered natural language understanding, WhistleAI can analyze logs in real-time, identify anomalies or critical errors, and notify users promptly through their preferred communication channels.
+
+Unlike traditional log watchers that rely solely on static rules or keyword matching, WhistleAI employs a configurable AI language model backend (such as OpenAI's GPT series) to interpret log messages contextually. This enables it to distinguish between routine informational messages and genuinely concerning events that warrant user attention.
+
+## Key Advantages
+
+- **Ease of Deployment:** Delivered as a single binary, it can be installed quickly on any Linux system with minimal dependencies.
+- **Flexible Configuration:** Users can tailor which logs to monitor (kernel messages, specific systemd service units, or custom logs) and define alerting preferences.
+- **Adaptive Filtering:** The AI model continuously learns from user feedback and ignored log patterns, improving accuracy over time and reducing false alarms.
+- **Extensible Notification System:** Supports multiple alert channels out-of-the-box, with the ability to add custom webhook integrations for broader compatibility.
+- **Historical Insights:** Enables retrospective analysis of logs to uncover patterns or intermittent issues that might otherwise go unnoticed.
+
+## Features
+- Real-time log monitoring with minimal resource usage  
+- Configurable alert channels: Slack, email, webhook.
+- User-friendly CLI for configuration and management  
+- Automatic learning mode to identify common benign log patterns and reduce false positives  
+- Historical log analysis to detect trends and recurring issues  
+
+## Deployment
+1. `whistle server install` to install it on system.
+2. bundled into one single binary and download with one command
+
+## AI tooling
+1. notify(via slack/email, configured by `whistle config alert`)
+2. add log pattern regex into a ignore list to ignore this kind of log into future
+
+## CLI
+1. `whistle config llm --base_url <openaiapi_url> --api_key <your_api_key> --model <model_name>`  
+   Configure the AI language model to use
+2. `whistle config alert --slack <slack-webhook-url> `
+   use Slack for notification. 
+3. `whistle config log --kernel_only <true|false>` set if only watching kernel msg, default true
+4. `whistle config log --service_unit <service unit name> ` set to watch certain service unit. Can have multiple.
+5. `whistle service install`  install the systemd service, generate the config files
+6. `whistle test [--alert]` to test the configuration with a few positive / negative examples, if `--alert` is used, also send the alert.
+7. `whistle analyze --since <time>`, analyze the current log since `<time>` 
+8. `whistle ignore list` list current ignore list
+9.  `whistle ignore add <name> <regex> [--comment <comment>]` add a ignore rule.
+
+## Example usage:
+```bash
+# TODO: one line command to install
+# Configure alerting via Slack
+whistle config alert --slack https://hooks.slack.com/services/XXX/YYY/ZZZ  
+
+whistle config llm --api_key asdadasd --model gpt-4-mini
+
+# Analyze logs from 1 hour ago, create ignore list
+whistle analyze --since "1 hour ago"
+# Install monitoring logs
+whistle service install
+
+sudo service whistle-ai start
+```
+
+## TODO:
+1. project skeleton with click for cli
+2. implement configuration system /etc/whistle/config.json
+3. implement LLM tool calls, with slack integration
+4. implement `whistle monitor` which is the main entry for the service that listens to logs based on the config.
+5. implement `whistle analyze`
+6. implement `whistle test`
+7. implement other management commands, like service install, ignore, etc.
