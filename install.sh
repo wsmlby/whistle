@@ -7,23 +7,26 @@ INSTALL_DIR="/opt/whistle"
 BINARY_NAME="whistle"
 INSTALL_PATH="$INSTALL_DIR/$BINARY_NAME"
 
-# Check for root privileges
-if [ "$(id -u)" -ne 0 ]; then
-    echo "This script must be run as root. Please use sudo." >&2
+# Check dependencies
+if ! command -v curl &> /dev/null; then
+    echo "Error: curl is not installed. Please install it to continue." >&2
     exit 1
 fi
 
-# Check for curl
-if ! command -v curl &> /dev/null; then
-    echo "curl is not installed. Please install it to continue." >&2
-    exit 1
+# Determine if sudo is needed
+SUDO=""
+if [ "$(id -u)" -ne 0 ]; then
+    if command -v sudo >/dev/null 2>&1; then
+        SUDO="sudo"
+    else
+        echo "Error: This script requires root privileges. Please run as root or install sudo." >&2
+        exit 1
+    fi
 fi
 
 echo "Fetching the latest release information from $GITHUB_REPO..."
 
 # Get the download URL for the 'whistle' asset from the latest release
-# This uses the GitHub API and some basic text processing to extract the URL.
-# A more robust solution would use 'jq', but that is not a default utility.
 DOWNLOAD_URL=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases/latest" | grep "browser_download_url" | grep -o 'https://[^"]*' | grep "${BINARY_NAME}$")
 
 if [ -z "$DOWNLOAD_URL" ]; then
@@ -34,20 +37,16 @@ fi
 
 echo "Downloading $BINARY_NAME from $DOWNLOAD_URL..."
 
-# Create the installation directory
-mkdir -p "$INSTALL_DIR"
-
 # Download the binary to a temporary file
 TMP_FILE=$(mktemp)
 curl -L --progress-bar -o "$TMP_FILE" "$DOWNLOAD_URL"
 
 echo "Installing $BINARY_NAME to $INSTALL_PATH..."
 
-# Move the binary to the installation path
-mv "$TMP_FILE" "$INSTALL_PATH"
-
-# Make the binary executable
-chmod +x "$INSTALL_PATH"
+# Create the installation directory, move the binary, and make it executable
+$SUDO mkdir -p "$INSTALL_DIR"
+$SUDO mv "$TMP_FILE" "$INSTALL_PATH"
+$SUDO chmod +x "$INSTALL_PATH"
 
 echo ""
 echo "$BINARY_NAME installed successfully to $INSTALL_PATH"
