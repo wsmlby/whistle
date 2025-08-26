@@ -1,8 +1,23 @@
 import json
 import os
+import pwd
 from pathlib import Path
 
-CONFIG_DIR = Path(os.environ.get("WHISTLE_CONFIG_DIR", Path.home() / ".config" / "whistle"))
+def get_user_config_dir():
+    """Gets the user's config directory, handling sudo."""
+    if 'SUDO_USER' in os.environ:
+        user_name = os.environ['SUDO_USER']
+        try:
+            # Get home directory of the original user
+            user_home = pwd.getpwnam(user_name).pw_dir
+            return Path(user_home) / ".config" / "whistle"
+        except KeyError:
+            # Fallback if user not found, though unlikely
+            return Path(f"/home/{user_name}/.config/whistle")
+    else:
+        return Path.home() / ".config" / "whistle"
+
+CONFIG_DIR = Path(os.environ.get("WHISTLE_CONFIG_DIR", get_user_config_dir()))
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULT_CONFIG = {
