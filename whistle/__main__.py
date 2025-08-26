@@ -3,6 +3,7 @@ import whistle.config as config
 import whistle.llm as llm
 import json
 import os
+import time
 import shutil
 import subprocess
 import sys
@@ -75,7 +76,8 @@ def config_log(kernel_only, service_units):
 
 @cli.command()
 @click.option('--alert', is_flag=True, help='If set, also send a test alert.')
-def test(alert):
+@click.option('--llm', 'test_llm', is_flag=True, help='If set, also test the LLM connection and logic.')
+def test(alert, test_llm):
     """Test the configuration."""
     conf = config.load_config()
     click.echo("Current configuration:")
@@ -83,6 +85,61 @@ def test(alert):
 
     if alert:
         click.echo("\n--alert flag is set. In the future, this will send a test alert.")
+
+    if test_llm:
+        click.echo("\n--- Testing LLM configuration ---")
+        llm_config = conf.get('llm', {})
+        api_key = llm_config.get('api_key')
+        model = llm_config.get('model')
+
+        if not all([api_key, model]):
+            click.secho("LLM is not configured. Please run 'whistle config llm' first.", fg='red')
+            return
+
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key, base_url=llm_config.get('base_url'))
+
+            # 1. Test basic API connection
+            click.echo("1. Testing API connection...")
+            client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": "hello"}],
+                max_tokens=5,
+            )
+            click.secho("   API connection successful.", fg='green')
+
+            # 2. Test analysis logic with predefined logs
+            click.echo("\n2. Testing analysis logic with example logs...")
+            EXAMPLE_LOGS = [
+                {
+                    "description": "Critical Error (Should be an Anomaly)",
+                    "log": "systemd[1]: Failed to start My Important Service.",
+                },
+                {
+                    "description": "Informational Message (Should not be an Anomaly)",
+                    "log": "kernel: usb 1-1: new high-speed USB device number 9 using xhci_hcd",
+                },
+                {
+                    "description": "Repetitive Warning (Should suggest an ignore rule)",
+                    "log": "sshd[12345]: Connection from 192.168.1.100 port 22: invalid user john",
+                },
+            ]
+
+            for item in EXAMPLE_LOGS:
+                click.echo(f"\n--- Case: {item['description']} ---")
+                click.echo(f"   Log Entry: {item['log']}")
+
+                # We pass the real config, so it will respect the ignore list if any matches
+                analysis = llm.analyze_log(item['log'], conf)
+
+                click.secho("   LLM Analysis:", fg='yellow')
+                click.echo(f"     Is Anomaly: {analysis.get('is_anomaly')}")
+                click.echo(f"     Reason: {analysis.get('reason')}")
+                click.echo(f"     Ignore Regex: {analysis.get('ignore_regex')}")
+
+        except Exception as e:
+            click.secho(f"LLM test failed: {e}", fg='red')
 
 
 @cli.group()
@@ -146,21 +203,34 @@ def install():
 
     click.echo(f"Found whistle executable at: {whistle_path}")
 
-    # Create config directory and default config
+    # --- Configuration Setup ---
     config_dir = Path("/etc/whistle")
+    config_dir.mkdir(parents=True, exist_ok=True)
     config_file = config_dir / "config.json"
 
-    try:
-        config_dir.mkdir(parents=True, exist_ok=True)
+    # Load user's local config to offer it as the system config
+    user_conf = config.load_config()
+
+    click.echo("\n--- Configuration Setup ---")
+    if click.confirm(f"Do you want to copy your local user configuration from '{config.CONFIG_FILE}' to the system-wide path '{config_file}'?", default=True):
+        try:
+            click.echo(f"Copying config to {config_file}...")
+            config.save_config(user_conf, path=str(config_file))
+            click.secho("Successfully copied configuration.", fg='green')
+        except Exception as e:
+            click.secho(f"Error copying config file: {e}", fg='red')
+            sys.exit(1)
+    else:
+        # If user declines, create a default config if one doesn't exist
         if not config_file.exists():
             click.echo(f"Creating default config at {config_file}")
-            with open(config_file, 'w') as f:
-                json.dump(config.DEFAULT_CONFIG, f, indent=4)
+            try:
+                config.save_config(config.DEFAULT_CONFIG, path=str(config_file))
+            except Exception as e:
+                click.secho(f"Error creating default config file: {e}", fg='red')
+                sys.exit(1)
         else:
-            click.echo(f"Config file {config_file} already exists. Skipping creation.")
-    except Exception as e:
-        click.echo(f"Error creating config file: {e}", err=True)
-        sys.exit(1)
+            click.echo(f"Keeping existing config file at {config_file}.")
 
 
     # Create systemd service file
@@ -191,10 +261,17 @@ def install():
 
 @cli.command()
 @click.option('--since', default="1 hour ago", help='The start time for log analysis (e.g., "1 hour ago", "2023-10-27 10:00:00").')
-def analyze(since):
+@click.option('--config', 'config_path', help="Path to the configuration file.")
+def analyze(since, config_path):
     """Analyze logs since a given time."""
-    conf = config.load_config()
+    try:
+        conf = config.load_config(config_path)
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
 
+    if config_path:
+        click.echo(f"Using configuration file: {config_path}")
     click.echo(f"Analyzing logs since '{since}'...")
 
     # Build journalctl command
@@ -228,6 +305,24 @@ def analyze(since):
     for entry in log_entries:
         if not entry: continue
         analysis = llm.analyze_log(entry, conf)
+
+        if analysis.get('ignore_regex'):
+            new_regex = analysis['ignore_regex']
+            # Check if this regex is already in the ignore list
+            if not any(r.get('regex') == new_regex for r in conf.get('ignore', [])):
+                rule_name = f"llm-suggested-{int(time.time())}"
+                new_rule = {
+                    "name": rule_name,
+                    "regex": new_regex,
+                    "comment": f"Auto-suggested by LLM for log: {entry[:50]}..."
+                }
+                conf.setdefault('ignore', []).append(new_rule)
+                try:
+                    config.save_config(conf, path=config_path)
+                    click.secho(f"New ignore rule '{rule_name}' automatically added for regex: '{new_regex}'", fg='green')
+                except Exception as e:
+                    click.secho(f"Failed to save new ignore rule: {e}", fg='red')
+
         if analysis['is_anomaly']:
             num_anomalies += 1
             click.echo("---")
@@ -275,6 +370,23 @@ def monitor(config_path):
                 continue
 
             analysis = llm.analyze_log(entry, conf)
+
+            if analysis.get('ignore_regex'):
+                new_regex = analysis['ignore_regex']
+                # Check if this regex is already in the ignore list
+                if not any(r.get('regex') == new_regex for r in conf.get('ignore', [])):
+                    rule_name = f"llm-suggested-{int(time.time())}"
+                    new_rule = {
+                        "name": rule_name,
+                        "regex": new_regex,
+                        "comment": f"Auto-suggested by LLM for log: {entry[:50]}..."
+                    }
+                    conf.setdefault('ignore', []).append(new_rule)
+                    try:
+                        config.save_config(conf, path=config_path)
+                        click.secho(f"New ignore rule '{rule_name}' automatically added for regex: '{new_regex}'", fg='green')
+                    except Exception as e:
+                        click.secho(f"Failed to save new ignore rule: {e}", fg='red')
 
             if analysis['is_anomaly']:
                 click.echo("---")
