@@ -4,12 +4,13 @@ from openai import OpenAI
 
 SYSTEM_PROMPT = """
 You are a log analysis expert. Your task is to analyze a given log entry
-and determine if it requires a user's attention. The user is a home lab enthusiast.
+and determine if it requires a user's attention. The user is a home lab enthusiast. Only alert user for things that are truly concerning. Potential hardware issues should always be flagged.
 
-Analyze the following log entry and respond with a JSON object with three keys:
+Analyze the following log entry and respond with a JSON object with four keys:
 - "is_anomaly": a boolean (true if it's a critical error, false otherwise).
 - "reason": a short, one-sentence explanation for your decision.
-- "ignore_regex": a string. If the log entry is not an anomaly but is a common, repetitive message that could be safely ignored in the future, provide a robust regex pattern that would match this type of log entry. Otherwise, this should be null.
+- "ignore_regex": a string. If the log entry is not an anomaly but is a common, repetitive message that could be safely ignored in the future, provide a robust regex pattern that would match this type of log entry. Otherwise, this should be null. The regex should be relatively simple and generic.
+- "ignore_regex_name": a string. A explanatory name for the ignore regex pattern if provided.
 """
 
 def analyze_log(log_entry: str, config: dict) -> dict:
@@ -33,14 +34,23 @@ def analyze_log(log_entry: str, config: dict) -> dict:
             'ignore_regex': None
         }
 
-    # 2. Call LLM API
+
+    # 2. Prepare system prompt with custom rules
+    custom_rules = config.get('custom_rules', [])
+    custom_rules_str = ""
+    if custom_rules:
+        custom_rules_str = "\n\nCustom rules to consider:\n" + "\n".join(f"- {rule}" for rule in custom_rules)
+    system_prompt = SYSTEM_PROMPT + custom_rules_str
+    if len(log_entry) > config.get('llm_max_log_length', 256):
+        log_entry = log_entry[:config['llm_max_log_length'] - len("::TRUNCATED")] + "::TRUNCATED"
+    # 3. Call LLM API
     try:
         client = OpenAI(api_key=api_key, base_url=base_url)
 
         response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": log_entry}
             ],
             response_format={"type": "json_object"},

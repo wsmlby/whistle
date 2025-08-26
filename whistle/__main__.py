@@ -1,6 +1,7 @@
 import click
 import whistle.config as config
 import whistle.llm as llm
+import whistle.alert as alert_util
 import json
 import os
 import time
@@ -34,11 +35,13 @@ def config_group():
     """Manage configuration."""
     pass
 
+
 @config_group.command(name='llm')
 @click.option('--base_url', help='The base URL for the LLM API.')
 @click.option('--api_key', help='The API key for the LLM API.')
 @click.option('--model', help='The model to use for the LLM.')
-def config_llm(base_url, api_key, model):
+@click.option('--max_log_length', type=int, help='Maximum log length to send to LLM.')
+def config_llm(base_url, api_key, model, max_log_length):
     """Configure the LLM."""
     conf = config.load_config()
     if base_url is not None:
@@ -47,6 +50,8 @@ def config_llm(base_url, api_key, model):
         conf['llm']['api_key'] = api_key
     if model is not None:
         conf['llm']['model'] = model
+    if max_log_length is not None:
+        conf['llm_max_log_length'] = max_log_length
     config.save_config(conf)
     click.echo("LLM configuration updated.")
 
@@ -74,72 +79,59 @@ def config_log(kernel_only, service_units):
     click.echo("Log configuration updated.")
 
 
+# Test command: analyze sample logs and optionally trigger alert
 @cli.command()
 @click.option('--alert', is_flag=True, help='If set, also send a test alert.')
-@click.option('--llm', 'test_llm', is_flag=True, help='If set, also test the LLM connection and logic.')
-def test(alert, test_llm):
-    """Test the configuration."""
+def test(alert):
+    """Test log analysis and alerting."""
+    from whistle.test_cases import test_cases
     conf = config.load_config()
     click.echo("Current configuration:")
     click.echo(json.dumps(conf, indent=4))
 
-    if alert:
-        click.echo("\n--alert flag is set. In the future, this will send a test alert.")
+    click.echo("\nAnalyzing test logs...")
+    ignore_regexes = []
+    for case in test_cases:
+        entry = case["log"]
+        analysis = llm.analyze_log(entry, conf)
+        click.echo(f"Log: {entry}")
+        click.echo(f"Analysis: {json.dumps(analysis, indent=2)}")
+        mismatch = False
+        # Update local ignore regex list if suggested
+        if analysis.get('ignore_regex'):
+            if analysis['ignore_regex'] not in ignore_regexes:
+                ignore_regexes.append(analysis['ignore_regex'])
+        # Check ignored expectation
+        if case.get('expect_ignored', False):
+            import re
+            ignored = any(re.search(regex, entry) for regex in ignore_regexes)
+            if not ignored:
+                mismatch = True
+                click.secho("Expected log to be ignored by ignore rules, but it was not.", fg='red')
+            if ignored and not mismatch:
+                click.secho("Log was correctly ignored by ignore rules.", fg='green')
+                continue
+        # Check anomaly expectation
+        if 'expect_anomaly' in case:
+            if analysis.get('is_anomaly', False) != case.get('expect_anomaly', False):
+                mismatch = True
+                click.secho(f"Expected anomaly: {case.get('expect_anomaly', False)}, got: {analysis.get('is_anomaly', False)}", fg='red')
+            # Check reason expectation
+            if case.get('expect_anomaly', False) and case.get('expect_reason_contains'):
+                reason = analysis.get('reason', '')
+                expected = case['expect_reason_contains']
+                if isinstance(expected, str):
+                    expected = [expected]
+                if not any(e in reason for e in expected):
+                    mismatch = True
+                    click.secho(f"Expected reason to contain one of {expected}, got: '{reason}'", fg='red')
+        if not mismatch:
+            click.secho("Behavior as expected.", fg='green')
+        if analysis.get('is_anomaly') and alert:
+            click.secho("--- ALERT TRIGGERED ---", fg='yellow')
+            alert_util.send_alert(f"[TEST]Anomaly detected: {entry}\nReason: {analysis.get('reason', '')}", conf)
+        click.echo("---")
 
-    if test_llm:
-        click.echo("\n--- Testing LLM configuration ---")
-        llm_config = conf.get('llm', {})
-        api_key = llm_config.get('api_key')
-        model = llm_config.get('model')
-
-        if not all([api_key, model]):
-            click.secho("LLM is not configured. Please run 'whistle config llm' first.", fg='red')
-            return
-
-        try:
-            from openai import OpenAI
-            client = OpenAI(api_key=api_key, base_url=llm_config.get('base_url'))
-
-            # 1. Test basic API connection
-            click.echo("1. Testing API connection...")
-            client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": "hello"}],
-                max_tokens=5,
-            )
-            click.secho("   API connection successful.", fg='green')
-
-            # 2. Test analysis logic with predefined logs
-            click.echo("\n2. Testing analysis logic with example logs...")
-            EXAMPLE_LOGS = [
-                {
-                    "description": "Critical Error (Should be an Anomaly)",
-                    "log": "systemd[1]: Failed to start My Important Service.",
-                },
-                {
-                    "description": "Informational Message (Should not be an Anomaly)",
-                    "log": "kernel: usb 1-1: new high-speed USB device number 9 using xhci_hcd",
-                },
-                {
-                    "description": "Repetitive Warning (Should suggest an ignore rule)",
-                    "log": "sshd[12345]: Connection from 192.168.1.100 port 22: invalid user john",
-                },
-            ]
-
-            for item in EXAMPLE_LOGS:
-                click.echo(f"\n--- Case: {item['description']} ---")
-                click.echo(f"   Log Entry: {item['log']}")
-
-                # We pass the real config, so it will respect the ignore list if any matches
-                analysis = llm.analyze_log(item['log'], conf)
-
-                click.secho("   LLM Analysis:", fg='yellow')
-                click.echo(f"     Is Anomaly: {analysis.get('is_anomaly')}")
-                click.echo(f"     Reason: {analysis.get('reason')}")
-                click.echo(f"     Ignore Regex: {analysis.get('ignore_regex')}")
-
-        except Exception as e:
-            click.secho(f"LLM test failed: {e}", fg='red')
 
 
 @cli.group()
@@ -159,6 +151,7 @@ def ignore_list():
         comment_str = f" ({rule.get('comment')})" if rule.get('comment') else ""
         click.echo(f"- {rule['name']}: '{rule['regex']}'{comment_str}")
 
+
 @ignore.command(name="add")
 @click.argument('name')
 @click.argument('regex')
@@ -166,18 +159,42 @@ def ignore_list():
 def ignore_add(name, regex, comment):
     """Add a new ignore rule."""
     conf = config.load_config()
-
     if any(r['name'] == name for r in conf['ignore']):
         click.echo(f"Error: Ignore rule with name '{name}' already exists.", err=True)
         raise click.Abort()
-
     new_rule = {'name': name, 'regex': regex}
     if comment:
         new_rule['comment'] = comment
-
     conf['ignore'].append(new_rule)
     config.save_config(conf)
     click.echo(f"Ignore rule '{name}' added.")
+
+@ignore.command(name="delete")
+@click.argument('name')
+def ignore_delete(name):
+    """Delete an ignore rule by name."""
+    conf = config.load_config()
+    before = len(conf.get('ignore', []))
+    conf['ignore'] = [r for r in conf.get('ignore', []) if r['name'] != name]
+    after = len(conf['ignore'])
+    config.save_config(conf)
+    if before == after:
+        click.echo(f"No ignore rule found with name '{name}'.")
+    else:
+        click.echo(f"Ignore rule '{name}' deleted.")
+
+@ignore.command(name="delete-all")
+@click.option('--yes', is_flag=True, help='Skip confirmation prompt.')
+def ignore_delete_all(yes):
+    """Delete all ignore rules."""
+    if not yes:
+        if not click.confirm("Are you sure you want to delete ALL ignore rules?", default=False):
+            click.echo("Delete-all cancelled.")
+            return
+    conf = config.load_config()
+    conf['ignore'] = []
+    config.save_config(conf)
+    click.echo("All ignore rules deleted.")
 
 
 @cli.group()
@@ -262,7 +279,8 @@ def install():
 @cli.command()
 @click.option('--since', default="1 hour ago", help='The start time for log analysis (e.g., "1 hour ago", "2023-10-27 10:00:00").')
 @click.option('--config', 'config_path', help="Path to the configuration file.")
-def analyze(since, config_path):
+@click.option('--show-ignored', is_flag=True, help="Show ignored log entries.")
+def analyze(since, config_path, show_ignored):
     """Analyze logs since a given time."""
     try:
         conf = config.load_config(config_path)
@@ -299,30 +317,49 @@ def analyze(since, config_path):
         click.echo("No log entries found for the specified time range and configuration.")
         return
 
-    click.echo(f"\nFound {len(log_entries)} log entries. Analyzing...")
+    if not click.confirm(f"Proceed to analyze {len(log_entries)} log entries?", default=True):
+        click.echo("Analysis cancelled by user.")
+        return
 
+    import re
     num_anomalies = 0
+    # Always reload ignore list from config at the beginning
+    ignore_list = config.load_config(config_path).get('ignore', [])
+    new_ignore_list_count = 0
+    ignored_log_count = 0
+    analysis_run_count = 0
     for entry in log_entries:
-        if not entry: continue
+        if not entry:
+            continue
+        # Check if entry matches any ignore rule
+        ignored = any(re.search(r.get('regex'), entry) for r in ignore_list)
+        if ignored:
+            if show_ignored:
+                click.secho(f"IGNORED: {entry}", fg='yellow')
+            ignored_log_count += 1
+            continue
+        
         analysis = llm.analyze_log(entry, conf)
-
+        click.secho(f"Analyzing log entry: {entry} got {analysis}", fg='blue')
+        analysis_run_count += 1
+        # If new ignore_regex is suggested, add to ignore list
         if analysis.get('ignore_regex'):
             new_regex = analysis['ignore_regex']
-            # Check if this regex is already in the ignore list
-            if not any(r.get('regex') == new_regex for r in conf.get('ignore', [])):
-                rule_name = f"llm-suggested-{int(time.time())}"
+            if not any(r.get('regex') == new_regex for r in ignore_list):
+                rule_name = analysis.get("ignore_regex_name", f"llm-suggested-{int(time.time())}")
                 new_rule = {
                     "name": rule_name,
                     "regex": new_regex,
                     "comment": f"Auto-suggested by LLM for log: {entry[:50]}..."
                 }
-                conf.setdefault('ignore', []).append(new_rule)
+                ignore_list.append(new_rule)
+                conf['ignore'] = ignore_list
+                new_ignore_list_count += 1
                 try:
                     config.save_config(conf, path=config_path)
                     click.secho(f"New ignore rule '{rule_name}' automatically added for regex: '{new_regex}'", fg='green')
                 except Exception as e:
                     click.secho(f"Failed to save new ignore rule: {e}", fg='red')
-
         if analysis['is_anomaly']:
             num_anomalies += 1
             click.echo("---")
@@ -334,7 +371,10 @@ def analyze(since, config_path):
         click.secho(f"\nAnalysis complete. Found {num_anomalies} anomalies.", fg='red')
     else:
         click.secho("\nAnalysis complete. No anomalies found.", fg='green')
-
+    click.secho(f"Total ignored rules: {len(ignore_list)}", fg='yellow')
+    click.secho(f"Total ignored logs: {ignored_log_count}", fg='yellow')
+    click.secho(f"Total new ignore rules added: {new_ignore_list_count}", fg='yellow')
+    click.secho(f"Total log entries analyzed with LLM: {analysis_run_count}", fg='yellow')
 
 @cli.command()
 @click.option('--config', 'config_path', help="Path to the configuration file.")
