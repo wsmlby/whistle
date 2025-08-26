@@ -1,0 +1,2 @@
+[console_scripts]
+whistle = whistle.__main__:cli

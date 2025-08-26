@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "whistle-ai"
+version = "0.0.1"
+authors = [
+  { name="You", email="you@example.com" },
+]
+description = "A lightweight, intelligent log monitoring tool"
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "click",
+]
+
+[project.scripts]
+whistle = "whistle.__main__:cli"
+
+[project.optional-dependencies]
+build = ["pyinstaller"]
