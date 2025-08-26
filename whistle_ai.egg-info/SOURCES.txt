@@ -1,0 +1,11 @@
+LICENSE
+README.md
+pyproject.toml
+whistle/__main__.py
+whistle/config.py
+whistle_ai.egg-info/PKG-INFO
+whistle_ai.egg-info/SOURCES.txt
+whistle_ai.egg-info/dependency_links.txt
+whistle_ai.egg-info/entry_points.txt
+whistle_ai.egg-info/requires.txt
+whistle_ai.egg-info/top_level.txt
