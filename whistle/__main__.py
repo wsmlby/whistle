@@ -452,7 +452,7 @@ def monitor(config_path):
                 click.secho(f"Anomaly detected: {analysis['reason']}", fg='red')
                 click.echo(entry)
                 # Here we would trigger a notification
-                click.secho("--- ALERT ---", fg='yellow') # Placeholder for alert
+                alert_util.send_alert(f"Anomaly detected: {entry}\nReason: {analysis.get('reason', '')}", conf)
 
     except FileNotFoundError:
         click.echo(f"Error: 'journalctl' command not found. Please make sure systemd is installed.", err=True)
@@ -465,9 +465,10 @@ def monitor(config_path):
             process.terminate()
 
 @ignore.command(name="smart_combine")
-def ignore_smart_combine():
+@click.option('--config', 'config_path', help='Path to the configuration file.')
+def ignore_smart_combine(config_path):
     """Suggest a smart combination of ignore rules using LLM."""
-    conf = config.load_config()
+    conf = config.load_config(config_path)
     rules = conf.get('ignore', [])
     if not rules:
         click.echo("No ignore rules to combine.")
@@ -485,8 +486,9 @@ def ignore_smart_combine():
     if not click.confirm("Do you want to save these changes?", default=False):
         click.echo("Changes not saved.")
         return
+    conf['ignore'] = combined
     try:
-        config.save_config(conf)
+        config.save_config(conf, path=config_path)
         click.secho("Configuration updated successfully.", fg='green')
     except Exception as e:
         click.secho(f"Failed to save configuration: {e}", fg='red')
