@@ -19,6 +19,7 @@ Unlike traditional log watchers that rely solely on static rules or keyword matc
 - Historical log analysis to detect trends and recurring issues  
 
 ## Deployment
+0. `curl -sSL https://raw.githubusercontent.com/wsmlby/whistle/refs/heads/main/install.sh | bash`
 1. `whistle server install` to install it on system.
 2. bundled into one single binary and download with one command
 
