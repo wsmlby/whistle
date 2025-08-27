@@ -3,7 +3,7 @@ set -e
 
 # Configuration
 GITHUB_REPO="wsmlby/whistle"
-INSTALL_DIR="/opt/whistle"
+INSTALL_DIR="/usr/bin/whistle"
 BINARY_NAME="whistle"
 INSTALL_PATH="$INSTALL_DIR/$BINARY_NAME"
 
