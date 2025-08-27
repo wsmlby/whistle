@@ -1,9 +1,14 @@
 #!/bin/bash
 set -e
 
+
 # Configuration
 GITHUB_REPO="wsmlby/whistle"
-INSTALL_DIR="/usr/bin"
+# Allow override by environment variable or first argument
+INSTALL_DIR="${INSTALL_DIR:-/usr/bin}"
+if [ -n "$1" ]; then
+    INSTALL_DIR="$1"
+fi
 BINARY_NAME="whistle"
 INSTALL_PATH="$INSTALL_DIR/$BINARY_NAME"
 
