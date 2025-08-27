@@ -1,10 +1,52 @@
+def summarize_ignore_rules(rules, config):
+    """
+    Given a list of ignore rules, use the LLM to combine them into fewer, more general rules by extracting common patterns.
+    Returns a list of summarized rules (dicts with 'regex' and 'name').
+    """
+    llm_config = config.get('llm', {})
+    api_key = llm_config.get('api_key')
+    base_url = llm_config.get('base_url')
+    model = llm_config.get('model')
+
+    if not all([api_key, model]):
+        return []
+
+    # Prepare prompt for LLM
+    rules_str = "\n".join(f"- {r['regex']} ({r.get('name', '')})" for r in rules)
+    prompt = (
+        "You are an expert in log filtering and regex. Given the following list of ignore regex rules, "
+        "combine them into fewer, more general rules by extracting common patterns when it makes sense. "
+        "Return a JSON array of objects, each with 'regex' and 'name'.\n\n"
+        f"Ignore rules:\n{rules_str}"
+    )
+
+    try:
+        client = OpenAI(api_key=api_key, base_url=base_url)
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are a log analysis expert."},
+                {"role": "user", "content": prompt}
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.2,
+        )
+        result_str = response.choices[0].message.content
+        summarized = json.loads(result_str)
+        if isinstance(summarized, list):
+            return summarized
+        return []
+    except Exception as e:
+        return []
 import re
 import json
 from openai import OpenAI
 
 SYSTEM_PROMPT = """
 You are a log analysis expert. Your task is to analyze a given log entry
-and determine if it requires a user's attention. The user is a home lab enthusiast. Only alert user for things that are truly concerning. Potential hardware issues should always be flagged.
+and determine if it requires a user's attention. The user is a home lab enthusiast. Only alert user for things that are truly concerning.
+Potential hardware issues should always be flagged.
+Major security concern or possible hacking attempted should be flagged.
 
 Analyze the following log entry and respond with a JSON object with four keys:
 - "is_anomaly": a boolean (true if it's a critical error, false otherwise).

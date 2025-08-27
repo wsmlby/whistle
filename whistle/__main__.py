@@ -36,14 +36,21 @@ def config_group():
     pass
 
 
+
 @config_group.command(name='llm')
 @click.option('--base_url', help='The base URL for the LLM API.')
 @click.option('--api_key', help='The API key for the LLM API.')
 @click.option('--model', help='The model to use for the LLM.')
 @click.option('--max_log_length', type=int, help='Maximum log length to send to LLM.')
-def config_llm(base_url, api_key, model, max_log_length):
-    """Configure the LLM."""
+@click.option('--show', is_flag=True, help='Show current LLM config values.')
+def config_llm(base_url, api_key, model, max_log_length, show):
+    """Configure the LLM or show current config."""
     conf = config.load_config()
+    if show:
+        click.echo("Current LLM config:")
+        click.echo(json.dumps(conf.get('llm', {}), indent=2))
+        click.echo(f"llm_max_log_length: {conf.get('llm_max_log_length', 256)}")
+        return
     if base_url is not None:
         conf['llm']['base_url'] = base_url
     if api_key is not None:
@@ -55,22 +62,34 @@ def config_llm(base_url, api_key, model, max_log_length):
     config.save_config(conf)
     click.echo("LLM configuration updated.")
 
+
 @config_group.command(name='alert')
 @click.option('--slack', 'slack_webhook_url', help='The Slack webhook URL.')
-def config_alert(slack_webhook_url):
-    """Configure alerting."""
+@click.option('--show', is_flag=True, help='Show current alert config values.')
+def config_alert(slack_webhook_url, show):
+    """Configure alerting or show current config."""
     conf = config.load_config()
+    if show:
+        click.echo("Current alert config:")
+        click.echo(json.dumps(conf.get('alert', {}), indent=2))
+        return
     if slack_webhook_url is not None:
         conf['alert']['slack'] = slack_webhook_url
     config.save_config(conf)
     click.echo("Alerting configuration updated.")
 
+
 @config_group.command(name='log')
 @click.option('--kernel_only', type=click.BOOL, help='Whether to watch only kernel messages.')
 @click.option('--service_unit', 'service_units', multiple=True, help='A systemd service unit to watch. Can be specified multiple times.')
-def config_log(kernel_only, service_units):
-    """Configure logging."""
+@click.option('--show', is_flag=True, help='Show current log config values.')
+def config_log(kernel_only, service_units, show):
+    """Configure logging or show current config."""
     conf = config.load_config()
+    if show:
+        click.echo("Current log config:")
+        click.echo(json.dumps(conf.get('log', {}), indent=2))
+        return
     if kernel_only is not None:
         conf['log']['kernel_only'] = kernel_only
     if service_units:
@@ -445,6 +464,32 @@ def monitor(config_path):
         if process:
             process.terminate()
 
+@ignore.command(name="smart_combine")
+def ignore_smart_combine():
+    """Suggest a smart combination of ignore rules using LLM."""
+    conf = config.load_config()
+    rules = conf.get('ignore', [])
+    if not rules:
+        click.echo("No ignore rules to combine.")
+        return
+    from whistle.llm import summarize_ignore_rules
+    click.echo("Combining ignore rules using LLM...")
+    combined = summarize_ignore_rules(rules, conf)
+    if not combined:
+        click.secho("No combined rules returned or LLM not configured.", fg='red')
+        return
+    click.echo("Suggested combined ignore rules:")
+    for rule in combined:
+        click.echo(json.dumps(rule, indent=2))
+    click.secho(f"Combining ignore rules from {len(rules)} to {len(combined)}.", fg='green')
+    if not click.confirm("Do you want to save these changes?", default=False):
+        click.echo("Changes not saved.")
+        return
+    try:
+        config.save_config(conf)
+        click.secho("Configuration updated successfully.", fg='green')
+    except Exception as e:
+        click.secho(f"Failed to save configuration: {e}", fg='red')
 
 if __name__ == '__main__':
     cli()
