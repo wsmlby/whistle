@@ -16,6 +16,7 @@ def summarize_ignore_rules(rules, config):
     prompt = (
         "You are an expert in log filtering and regex. Given the following list of ignore regex rules, "
         "combine them into fewer, more general rules by extracting common patterns when it makes sense. "
+        "The regex should be relatively simple and generic and compatible with python's standard re library. Be careful about whitespace."
         "Return a JSON array of objects, each with 'regex' and 'name'.\n\n"
         f"Ignore rules:\n{rules_str}"
     )
