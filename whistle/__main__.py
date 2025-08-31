@@ -18,7 +18,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart={exec_path} monitor --config /etc/whistle/config.json
+ExecStart={exec_path} monitor
 Restart=on-failure
 
 [Install]
