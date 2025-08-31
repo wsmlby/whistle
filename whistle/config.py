@@ -52,9 +52,9 @@ def load_config():
     with open(config_path, "r") as f:
         return json.load(f)
 
-def save_config(config: dict):
+def save_config(config: dict, path: str = None):
     """Saves the configuration to a given path or the default user path."""
-    config_path = get_config_path()
+    config_path = Path(path) if path else get_config_path()
     config_dir = config_path.parent
     config_dir.mkdir(parents=True, exist_ok=True)
     with open(config_path, "w") as f:

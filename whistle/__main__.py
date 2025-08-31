@@ -371,7 +371,7 @@ def analyze(since, show_ignored):
                 conf['ignore'] = ignore_list
                 new_ignore_list_count += 1
                 try:
-                    config.save_config(conf, path=config_path)
+                    config.save_config(conf)
                     click.secho(f"New ignore rule '{rule_name}' automatically added for regex: '{new_regex}'", fg='green')
                 except Exception as e:
                     click.secho(f"Failed to save new ignore rule: {e}", fg='red')
@@ -435,7 +435,7 @@ def monitor():
                     }
                     conf.setdefault('ignore', []).append(new_rule)
                     try:
-                        config.save_config(conf, path=config_path)
+                        config.save_config(conf)
                         click.secho(f"New ignore rule '{rule_name}' automatically added for regex: '{new_regex}'", fg='green')
                     except Exception as e:
                         click.secho(f"Failed to save new ignore rule: {e}", fg='red')
