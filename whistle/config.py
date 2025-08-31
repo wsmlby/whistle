@@ -36,19 +36,25 @@ DEFAULT_CONFIG = {
     "ignore": [],
 }
 
-def load_config(path: str = None):
+def is_root():
+    return os.geteuid() == 0
+
+def get_config_path():
+    if is_root():
+        return Path("/etc/whistle/config.json")
+    return CONFIG_FILE
+
+def load_config():
     """Loads the configuration from a given path or the default user path."""
-    config_path = Path(path) if path else CONFIG_FILE
+    config_path = get_config_path()
     if not config_path.exists():
-        if path:
-            raise FileNotFoundError(f"Configuration file not found at {path}")
         return DEFAULT_CONFIG
     with open(config_path, "r") as f:
         return json.load(f)
 
-def save_config(config: dict, path: str = None):
+def save_config(config: dict):
     """Saves the configuration to a given path or the default user path."""
-    config_path = Path(path) if path else CONFIG_FILE
+    config_path = get_config_path()
     config_dir = config_path.parent
     config_dir.mkdir(parents=True, exist_ok=True)
     with open(config_path, "w") as f:

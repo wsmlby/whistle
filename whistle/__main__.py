@@ -297,18 +297,14 @@ def install():
 
 @cli.command()
 @click.option('--since', default="1 hour ago", help='The start time for log analysis (e.g., "1 hour ago", "2023-10-27 10:00:00").')
-@click.option('--config', 'config_path', help="Path to the configuration file.")
 @click.option('--show-ignored', is_flag=True, help="Show ignored log entries.")
-def analyze(since, config_path, show_ignored):
+def analyze(since, show_ignored):
     """Analyze logs since a given time."""
     try:
-        conf = config.load_config(config_path)
+        conf = config.load_config()
     except FileNotFoundError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
-
-    if config_path:
-        click.echo(f"Using configuration file: {config_path}")
     click.echo(f"Analyzing logs since '{since}'...")
 
     # Build journalctl command
@@ -343,7 +339,7 @@ def analyze(since, config_path, show_ignored):
     import re
     num_anomalies = 0
     # Always reload ignore list from config at the beginning
-    ignore_list = config.load_config(config_path).get('ignore', [])
+    ignore_list = config.load_config().get('ignore', [])
     new_ignore_list_count = 0
     ignored_log_count = 0
     analysis_run_count = 0
@@ -396,14 +392,11 @@ def analyze(since, config_path, show_ignored):
     click.secho(f"Total log entries analyzed with LLM: {analysis_run_count}", fg='yellow')
 
 @cli.command()
-@click.option('--config', 'config_path', help="Path to the configuration file.")
-def monitor(config_path):
+def monitor():
     """Monitor logs in real-time and trigger alerts."""
-    if config_path:
-        click.echo(f"Using configuration file: {config_path}")
 
     try:
-        conf = config.load_config(config_path)
+        conf = config.load_config()
     except FileNotFoundError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -465,10 +458,9 @@ def monitor(config_path):
             process.terminate()
 
 @ignore.command(name="smart_combine")
-@click.option('--config', 'config_path', help='Path to the configuration file.')
-def ignore_smart_combine(config_path):
+def ignore_smart_combine():
     """Suggest a smart combination of ignore rules using LLM."""
-    conf = config.load_config(config_path)
+    conf = config.load_config()
     rules = conf.get('ignore', [])
     if not rules:
         click.echo("No ignore rules to combine.")
@@ -488,7 +480,7 @@ def ignore_smart_combine(config_path):
         return
     conf['ignore'] = combined
     try:
-        config.save_config(conf, path=config_path)
+        config.save_config(conf)
         click.secho("Configuration updated successfully.", fg='green')
     except Exception as e:
         click.secho(f"Failed to save configuration: {e}", fg='red')

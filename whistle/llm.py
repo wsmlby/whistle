@@ -51,7 +51,7 @@ Major security concern or possible hacking attempted should be flagged.
 Analyze the following log entry and respond with a JSON object with four keys:
 - "is_anomaly": a boolean (true if it's a critical error, false otherwise).
 - "reason": a short, one-sentence explanation for your decision.
-- "ignore_regex": a string. If the log entry is not an anomaly but is a common, repetitive message that could be safely ignored in the future, provide a robust regex pattern that would match this type of log entry. Otherwise, this should be null. The regex should be relatively simple and generic.
+- "ignore_regex": a string. If the log entry is not an anomaly but is a common, repetitive message that could be safely ignored in the future, provide a robust regex pattern that would match this type of log entry. Otherwise, this should be null. The regex should be relatively simple and generic and compatible with python's standard re library. Be careful about whitespace.
 - "ignore_regex_name": a string. A explanatory name for the ignore regex pattern if provided.
 """
 
